@@ -29,9 +29,81 @@ export interface Minibus {
 const WHEEL_RADIUS = 0.42;
 
 /**
- * Builds a stylized low-poly Toyota-Quantum-esque minibus silhouette from primitives:
- * body box, roof/window band, wheels, bumpers. A CanvasTexture livery band is applied
- * to the body sides for the "taxi stripe" / "JMPD Battenburg" look.
+ * Builds a triangular-prism "wedge" solid (a real slanted surface, not a flat decal)
+ * that bridges the cabin roofline down to the lower hood line, so the windshield rake
+ * is an actual geometric step in the silhouette instead of a painted-on plane sitting
+ * flush against a vertical box face.
+ *   backZ/backY   -> the back-top corner (meets the cabin roof edge)
+ *   frontZ/frontY -> the front-bottom corner (meets the hood's top-front edge)
+ * The third corner of the cross-section triangle is the right angle at (backZ, frontY).
+ */
+function buildWedge(width: number, backZ: number, backY: number, frontZ: number, frontY: number): THREE.BufferGeometry {
+  const hw = width / 2;
+  const A0 = [-hw, backY, backZ];
+  const A1 = [hw, backY, backZ];
+  const B0 = [-hw, frontY, frontZ];
+  const B1 = [hw, frontY, frontZ];
+  const C0 = [-hw, frontY, backZ];
+  const C1 = [hw, frontY, backZ];
+
+  const verts: number[] = [];
+  const pushTri = (p0: number[], p1: number[], p2: number[]) => {
+    verts.push(...p0, ...p1, ...p2);
+  };
+  // Slanted top surface (the visible "windshield" ramp).
+  pushTri(A0, B0, B1);
+  pushTri(A0, B1, A1);
+  // Bottom surface (sits on the hood roof line).
+  pushTri(C0, C1, B1);
+  pushTri(C0, B1, B0);
+  // Back surface (meets the cabin front wall).
+  pushTri(A0, A1, C1);
+  pushTri(A0, C1, C0);
+  // End caps (triangles closing the left/right sides).
+  pushTri(A0, C0, B0);
+  pushTri(A1, B1, C1);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Adds four thin diagonal strips across each vertical edge of a box region, faking a
+ * chamfered/rounded corner via an extra angled face rather than a perfectly sharp 90°. */
+function addCornerChamfers(
+  group: THREE.Group,
+  halfW: number,
+  height: number,
+  centerY: number,
+  zBack: number,
+  zFront: number,
+  mat: THREE.Material,
+) {
+  const size = 0.15;
+  const geo = new THREE.BoxGeometry(size, height, size);
+  const corners: [number, number][] = [
+    [halfW, zBack],
+    [halfW, zFront],
+    [-halfW, zBack],
+    [-halfW, zFront],
+  ];
+  for (const [x, z] of corners) {
+    const strip = new THREE.Mesh(geo, mat);
+    strip.position.set(x, centerY, z);
+    strip.rotation.y = Math.PI / 4;
+    strip.castShadow = true;
+    group.add(strip);
+  }
+}
+
+/**
+ * Builds a stylized low-poly Toyota-Quantum-esque minibus silhouette. Unlike earlier
+ * rounds, the body is NOT a single uniform box: it is three box segments of different
+ * width/height (rear panel, tall cabin, lower/narrower hood) joined by a sloped wedge
+ * solid at the cabin/hood step, plus chamfer strips softening the sharpest vertical
+ * edges — so the silhouette actually reads as a vehicle profile (hood lower than the
+ * roofline, raked windscreen step, non-90-degree corners) rather than a delivery van.
  */
 export function createMinibus(opts: MinibusOptions): Minibus {
   const group = new THREE.Group();
@@ -57,42 +129,96 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     metalness: 0.35,
   });
 
-  // Main body (boxy minibus silhouette)
+  // ---- Body silhouette: rear box (full height) + cabin box (full height) + hood box
+  // (lower & narrower), instead of one uniform box. Camera is a fixed rear-chase view,
+  // so the rear box gets the most silhouette/edge treatment (chamfers) since it's what's
+  // actually in frame; the hood only needs to read correctly in side/3-quarter profile
+  // during lane changes.
   const bodyW = 2.0;
   const bodyH = 1.45;
   const bodyL = 4.4;
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyW, bodyH, bodyL),
-    [
-      plainBodyMat, // +x
-      plainBodyMat, // -x
-      plainBodyMat, // +y (roof handled separately, keep plain)
-      plainBodyMat, // -y
-      bodyMat, // +z (front) show livery
-      bodyMat, // -z (rear)
-    ],
-  );
-  body.position.y = WHEEL_RADIUS + bodyH / 2;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  group.add(body);
+  const hoodH = bodyH * 0.62;
+  const hoodW = bodyW * 0.88;
+  const rearLen = 1.05;
+  const hoodLen = 1.05;
+  const cabinLen = bodyL - rearLen - hoodLen;
 
-  // Side livery panels (flat boxes overlaid on left/right sides so the stripe reads clearly)
-  const sideGeo = new THREE.PlaneGeometry(bodyL - 0.3, bodyH - 0.25);
+  const rearZ0 = -bodyL / 2;
+  const rearZ1 = rearZ0 + rearLen;
+  const cabinZ0 = rearZ1;
+  const cabinZ1 = cabinZ0 + cabinLen;
+  const hoodZ0 = cabinZ1;
+  const hoodZ1 = bodyL / 2;
+
+  const fullTopY = WHEEL_RADIUS + bodyH;
+  const hoodTopY = WHEEL_RADIUS + hoodH;
+
+  // Rear section — full height/width; this is the face dead-center in the chase camera.
+  const rearBox = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyW, bodyH, rearLen),
+    [plainBodyMat, plainBodyMat, plainBodyMat, plainBodyMat, plainBodyMat, bodyMat],
+  );
+  rearBox.position.set(0, WHEEL_RADIUS + bodyH / 2, (rearZ0 + rearZ1) / 2);
+  rearBox.castShadow = true;
+  rearBox.receiveShadow = true;
+  group.add(rearBox);
+  addCornerChamfers(group, bodyW / 2, bodyH, rearBox.position.y, rearZ0, rearZ1, plainBodyMat);
+
+  // Cabin midsection — same height/width as the rear (raised roofline), forms the
+  // passenger box between the tapered rear and the lower hood.
+  const cabinBox = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, cabinLen), plainBodyMat);
+  cabinBox.position.set(0, WHEEL_RADIUS + bodyH / 2, (cabinZ0 + cabinZ1) / 2);
+  cabinBox.castShadow = true;
+  cabinBox.receiveShadow = true;
+  group.add(cabinBox);
+  addCornerChamfers(group, bodyW / 2, bodyH, cabinBox.position.y, cabinZ0, cabinZ1, plainBodyMat);
+
+  // Hood/nose section — lower and narrower than the cabin, giving the profile an
+  // actual taper toward the front instead of a uniform rectangular van box.
+  const hoodBox = new THREE.Mesh(
+    new THREE.BoxGeometry(hoodW, hoodH, hoodLen),
+    [plainBodyMat, plainBodyMat, plainBodyMat, plainBodyMat, bodyMat, plainBodyMat],
+  );
+  hoodBox.position.set(0, WHEEL_RADIUS + hoodH / 2, (hoodZ0 + hoodZ1) / 2);
+  hoodBox.castShadow = true;
+  hoodBox.receiveShadow = true;
+  group.add(hoodBox);
+
+  // Windshield wedge: a real sloped solid (not a decal) bridging the cabin roof down to
+  // the hood's top-front edge, giving the profile a genuine windshield-rake step.
+  const wedgeGeo = buildWedge(hoodW * 0.97, cabinZ1, fullTopY, hoodZ0 + hoodLen * 0.55, hoodTopY);
+  // Glass-tinted (not flat black) since the elevated chase cam actually sees down over
+  // the roof onto this slope — it reads as the windshield surface itself.
+  const wedgeMat = new THREE.MeshStandardMaterial({
+    color: 0x6fa0c2,
+    emissive: 0x0a1520,
+    emissiveIntensity: 0.2,
+    roughness: 0.15,
+    metalness: 0.6,
+  });
+  const wedge = new THREE.Mesh(wedgeGeo, wedgeMat);
+  wedge.castShadow = true;
+  group.add(wedge);
+
+  // Side livery panels (flat decals overlaid on the rear+cabin sides so the checker
+  // stripe reads clearly there — this is where the chase cam and lane-change lean
+  // actually see the vehicle).
+  const sideLen = rearLen + cabinLen;
+  const sideGeo = new THREE.PlaneGeometry(sideLen - 0.3, bodyH - 0.25);
+  const sideZCenter = (rearZ0 + cabinZ1) / 2;
   const leftPanel = new THREE.Mesh(sideGeo, bodyMat);
-  leftPanel.position.set(bodyW / 2 + 0.006, body.position.y, 0);
+  leftPanel.position.set(bodyW / 2 + 0.006, rearBox.position.y, sideZCenter);
   leftPanel.rotation.y = Math.PI / 2;
   group.add(leftPanel);
   const rightPanel = new THREE.Mesh(sideGeo, bodyMat);
-  rightPanel.position.set(-bodyW / 2 - 0.006, body.position.y, 0);
+  rightPanel.position.set(-bodyW / 2 - 0.006, rearBox.position.y, sideZCenter);
   rightPanel.rotation.y = -Math.PI / 2;
   group.add(rightPanel);
 
-  // Window band (upper greenhouse) - tinted glass with pillar lines breaking it into
-  // individual panes (via CanvasTexture), a lighter blue tint, and a low-roughness/
-  // high-metalness finish so direct light throws a real specular highlight across it
-  // instead of reading as one flat black rectangle.
-  const paneCount = Math.max(4, Math.round((bodyL - 0.6) / 0.7));
+  // Window band (upper greenhouse) over the rear+cabin roofline — tinted glass with
+  // pillar lines breaking it into individual panes.
+  const windowLen = sideLen - 0.3;
+  const paneCount = Math.max(4, Math.round(windowLen / 0.7));
   const windowTex = createWindowPaneTexture(paneCount);
   const windowMat = new THREE.MeshStandardMaterial({
     map: windowTex,
@@ -108,7 +234,7 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     roughness: 0.15,
     metalness: 0.75,
   });
-  const windowBand = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.08, 0.5, bodyL - 0.6), [
+  const windowBand = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.08, 0.5, windowLen), [
     windowSideMat,
     windowSideMat,
     windowSideMat,
@@ -116,29 +242,31 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     windowMat,
     windowMat,
   ]);
-  windowBand.position.y = body.position.y + bodyH / 2 - 0.05;
+  windowBand.position.y = fullTopY - 0.05;
+  windowBand.position.z = sideZCenter;
   windowBand.castShadow = true;
   group.add(windowBand);
 
-  // Side glass panels (wrap the pane texture around the left/right sides too, so the
-  // window band reads as glass from the chase-cam's side-on view during lane changes).
-  const sideWindowGeo = new THREE.PlaneGeometry(bodyL - 0.7, 0.42);
+  // Side glass panels (wrap the pane texture around the left/right sides too).
+  const sideWindowGeo = new THREE.PlaneGeometry(windowLen - 0.4, 0.42);
   const leftWindow = new THREE.Mesh(sideWindowGeo, windowMat);
-  leftWindow.position.set(bodyW / 2 + 0.012, windowBand.position.y, 0);
+  leftWindow.position.set(bodyW / 2 + 0.012, windowBand.position.y, sideZCenter);
   leftWindow.rotation.y = Math.PI / 2;
   group.add(leftWindow);
   const rightWindow = new THREE.Mesh(sideWindowGeo, windowMat);
-  rightWindow.position.set(-bodyW / 2 - 0.012, windowBand.position.y, 0);
+  rightWindow.position.set(-bodyW / 2 - 0.012, windowBand.position.y, sideZCenter);
   rightWindow.rotation.y = -Math.PI / 2;
   group.add(rightWindow);
 
-  // Angled windshield: a small tilted glass panel bridging the hood line up to the
-  // window band on the front face, so the silhouette reads less like a flat vertical
-  // box-truck front and more like a raked windscreen.
-  const windshieldGeo = new THREE.PlaneGeometry(bodyW - 0.14, 0.62);
+  // Small angled windshield glass decal sitting on the wedge's slanted face (glass look
+  // on top of the real geometric step, rather than being the only thing creating it).
+  const windshieldGeo = new THREE.PlaneGeometry(hoodW - 0.1, 0.5);
   const windshield = new THREE.Mesh(windshieldGeo, windowMat);
-  windshield.position.set(0, body.position.y + bodyH / 2 - 0.32, bodyL / 2 - 0.02);
-  windshield.rotation.x = -0.32;
+  const wedgeMidZ = (cabinZ1 + (hoodZ0 + hoodLen * 0.55)) / 2;
+  const wedgeMidY = (fullTopY + hoodTopY) / 2;
+  windshield.position.set(0, wedgeMidY + 0.02, wedgeMidZ);
+  const rakeAngle = Math.atan2(fullTopY - hoodTopY, cabinZ1 - (hoodZ0 + hoodLen * 0.55));
+  windshield.rotation.x = -(Math.PI / 2 - Math.abs(rakeAngle));
   windshield.castShadow = true;
   group.add(windshield);
 
@@ -147,8 +275,9 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     opts.livery === "police"
       ? new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.3 })
       : new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.4, metalness: 0.3 });
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.05, 0.16, bodyL - 0.5), roofMat);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.05, 0.16, windowLen - 0.15), roofMat);
   roof.position.y = windowBand.position.y + 0.33;
+  roof.position.z = sideZCenter;
   roof.castShadow = true;
   group.add(roof);
 
@@ -171,14 +300,14 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     });
     const barGeo = new THREE.BoxGeometry(0.28, 0.16, 0.5);
     const redLightMesh = new THREE.Mesh(barGeo, redMat);
-    redLightMesh.position.set(-0.22, roof.position.y + 0.16, 0);
+    redLightMesh.position.set(-0.22, roof.position.y + 0.16, roof.position.z);
     const blueLightMesh = new THREE.Mesh(barGeo, blueMat);
-    blueLightMesh.position.set(0.22, roof.position.y + 0.16, 0);
+    blueLightMesh.position.set(0.22, roof.position.y + 0.16, roof.position.z);
     const barBase = new THREE.Mesh(
       new THREE.BoxGeometry(0.75, 0.08, 0.6),
       new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 }),
     );
-    barBase.position.set(0, roof.position.y + 0.1, 0);
+    barBase.position.set(0, roof.position.y + 0.1, roof.position.z);
     const redLight = new THREE.PointLight(0xff2222, 3.5, 6, 2);
     redLight.position.copy(redLightMesh.position);
     const blueLight = new THREE.PointLight(0x2244ff, 3.5, 6, 2);
@@ -208,20 +337,21 @@ export function createMinibus(opts: MinibusOptions): Minibus {
   const signSideMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
   const signGeo = new THREE.BoxGeometry(1.1, 0.34, 0.32);
   const sign = new THREE.Mesh(signGeo, [signSideMat, signSideMat, signSideMat, signSideMat, signMat, signMat]);
-  sign.position.set(0, roof.position.y + (opts.livery === "police" ? 0.34 : 0.17), bodyL * 0.12);
+  sign.position.set(0, roof.position.y + (opts.livery === "police" ? 0.34 : 0.17), sideZCenter + bodyL * 0.06);
   sign.castShadow = true;
   group.add(sign);
 
   // Front & rear bumpers — kept narrower than the wheel track so the wheels visibly
   // poke out past the bumper corners from the chase-cam's straight-behind angle.
   const bumperMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.6, metalness: 0.2 });
-  const bumperGeo = new THREE.BoxGeometry(bodyW - 0.3, 0.32, 0.22);
-  const frontBumper = new THREE.Mesh(bumperGeo, bumperMat);
-  frontBumper.position.set(0, WHEEL_RADIUS + 0.1, bodyL / 2 + 0.05);
+  const rearBumperGeo = new THREE.BoxGeometry(bodyW - 0.3, 0.32, 0.22);
+  const frontBumperGeo = new THREE.BoxGeometry(hoodW - 0.2, 0.28, 0.2);
+  const frontBumper = new THREE.Mesh(frontBumperGeo, bumperMat);
+  frontBumper.position.set(0, WHEEL_RADIUS + 0.1, hoodZ1 + 0.05);
   frontBumper.castShadow = true;
   group.add(frontBumper);
-  const rearBumper = new THREE.Mesh(bumperGeo, bumperMat);
-  rearBumper.position.set(0, WHEEL_RADIUS + 0.1, -bodyL / 2 - 0.05);
+  const rearBumper = new THREE.Mesh(rearBumperGeo, bumperMat);
+  rearBumper.position.set(0, WHEEL_RADIUS + 0.1, rearZ0 - 0.05);
   rearBumper.castShadow = true;
   group.add(rearBumper);
 
@@ -231,30 +361,41 @@ export function createMinibus(opts: MinibusOptions): Minibus {
   const lightGeo = new THREE.BoxGeometry(0.28, 0.16, 0.05);
   for (const side of [-1, 1]) {
     const head = new THREE.Mesh(lightGeo, headMat);
-    head.position.set(side * (bodyW / 2 - 0.25), body.position.y + 0.1, bodyL / 2 + 0.08);
+    head.position.set(side * (hoodW / 2 - 0.22), hoodBox.position.y, hoodZ1 + 0.08);
     group.add(head);
     const tail = new THREE.Mesh(lightGeo, tailMat);
-    tail.position.set(side * (bodyW / 2 - 0.25), body.position.y + 0.1, -bodyL / 2 - 0.08);
+    tail.position.set(side * (bodyW / 2 - 0.25), rearBox.position.y, rearZ0 - 0.08);
     group.add(tail);
   }
 
   // Wheels
-  // Tire kept dark but not pure black. The hub carries a radial spoke CanvasTexture on
-  // its outward-facing cap so wheel rotation is actually visible frame-to-frame instead
-  // of a featureless disc that looks identical at every angle.
+  // Tire kept dark but not pure black. A separate lighter/metallic hub cap AND a proud
+  // chrome rim ring (torus) sit outside the tire face, so there's a real 3D light-catching
+  // edge rather than a flat texture trying to fake rim/spoke detail.
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.75, metalness: 0.1 });
   const hubTex = createWheelHubTexture();
   const hubMat = new THREE.MeshStandardMaterial({ map: hubTex, roughness: 0.35, metalness: 0.6 });
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: 0xf0f0f0,
+    emissive: 0x333333,
+    emissiveIntensity: 0.25,
+    roughness: 0.12,
+    metalness: 0.95,
+  });
   const wheelGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.32, 20);
-  const hubGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.8, WHEEL_RADIUS * 0.8, 0.36, 20);
+  const hubGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.62, WHEEL_RADIUS * 0.62, 0.4, 20);
+  // Proud chrome rim ring: sits right at the tire's outer face plane, with a thick tube
+  // sticking well out past the flat tire disc — an actual protruding, light-catching 3D
+  // edge (brightened with a touch of emissive so it still reads in the vehicle's own
+  // shadow), not reliant on a texture map to fake the highlight.
+  const rimGeo = new THREE.TorusGeometry(WHEEL_RADIUS * 0.82, WHEEL_RADIUS * 0.16, 8, 20);
   // Wheels sit slightly proud of the body sides (real minibus wheel-arch look) so they
-  // stay visible past the body/bumper silhouette from directly behind — round 1's wheels
-  // were flush with the body and vanished behind the (wider) bumper.
+  // stay visible past the body/bumper silhouette from directly behind.
   const wheelPositions: [number, number][] = [
-    [bodyW / 2 + 0.16, bodyL / 2 - 0.75],
-    [-(bodyW / 2 + 0.16), bodyL / 2 - 0.75],
-    [bodyW / 2 + 0.16, -bodyL / 2 + 0.75],
-    [-(bodyW / 2 + 0.16), -bodyL / 2 + 0.75],
+    [bodyW / 2 + 0.16, hoodZ1 - 0.75],
+    [-(bodyW / 2 + 0.16), hoodZ1 - 0.75],
+    [bodyW / 2 + 0.16, rearZ0 + 0.75],
+    [-(bodyW / 2 + 0.16), rearZ0 + 0.75],
   ];
   for (const [x, z] of wheelPositions) {
     const wheelGroup = new THREE.Group();
@@ -264,6 +405,15 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     const hub = new THREE.Mesh(hubGeo, hubMat);
     hub.rotation.z = Math.PI / 2;
     wheelGroup.add(wheel, hub);
+    // Rim rings on both axle faces (both sides are visible at different points during
+    // lane changes / camera lean, so both get the proud ring rather than guessing side).
+    for (const faceOffset of [0.16, -0.16]) {
+      const rim = new THREE.Mesh(rimGeo, rimMat);
+      rim.rotation.y = Math.PI / 2;
+      rim.position.x = faceOffset;
+      rim.castShadow = true;
+      wheelGroup.add(rim);
+    }
     wheelGroup.position.set(x, WHEEL_RADIUS, z);
     group.add(wheelGroup);
     wheels.push(wheelGroup);

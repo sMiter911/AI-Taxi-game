@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { createAsphaltTexture, createLaneMarkingTexture, createBuildingFacadeTexture } from "./textures";
+import {
+  createAsphaltTexture,
+  createLaneMarkingTexture,
+  createBuildingFacadeTexture,
+  createPedestrianSilhouetteTexture,
+} from "./textures";
 
 export const LANE_WIDTH = 3.6;
 export const LANE_COUNT = 3;
@@ -28,6 +33,11 @@ export interface RoadWorld {
   update: (deltaZ: number) => void;
 }
 
+// The sun orbits with offset (-x, +z) relative to the taxi (see main.ts), so faces
+// pointing toward -x/+z are roughly sun-facing and +x/-z faces are roughly self-shadowed.
+// A single uniform material can't show that split, so each building gets two material
+// variants (a brighter warm-tinted one for the lit sides, a darker cool-tinted one for
+// the shadowed sides) applied per-face via BoxGeometry's material array.
 function buildBuilding(seed: number): THREE.Group {
   const g = new THREE.Group();
   const [base, win] = facadeColors[seed % facadeColors.length];
@@ -36,13 +46,56 @@ function buildBuilding(seed: number): THREE.Group {
   const h = 6 + ((seed * 13) % 10);
   const tex = createBuildingFacadeTexture(base, win);
   tex.repeat.set(Math.max(1, Math.round(w / 3)), Math.max(1, Math.round(h / 3)));
-  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, metalness: 0.05 });
+  const litMat = new THREE.MeshStandardMaterial({
+    map: tex,
+    color: 0xfff2d9,
+    roughness: 0.8,
+    metalness: 0.05,
+  });
+  const shadowMat = new THREE.MeshStandardMaterial({
+    map: tex,
+    color: 0x4a4d66,
+    roughness: 0.95,
+    metalness: 0.02,
+  });
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.9 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [mat, mat, roofMat, roofMat, mat, mat]);
+  // BoxGeometry face order: +x, -x, +y, -y, +z, -z
+  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [
+    shadowMat, // +x (away from sun)
+    litMat, // -x (toward sun)
+    roofMat,
+    roofMat,
+    litMat, // +z (toward sun)
+    shadowMat, // -z (away from sun)
+  ]);
   body.position.y = h / 2;
   body.castShadow = true;
   body.receiveShadow = true;
   g.add(body);
+  return g;
+}
+
+const PED_SHIRTS = ["#c94f4f", "#4f8fc9", "#4fc98f", "#c9a54f", "#8a4fc9"];
+
+/** Cheap ground-level detail: a flat billboard pedestrian silhouette planted on the
+ * sidewalk. Double-sided so it reads from either pass direction, alphaTest keeps the
+ * transparent background from sorting/blending oddly against other props. */
+function buildPedestrian(seed: number): THREE.Group {
+  const g = new THREE.Group();
+  const tex = createPedestrianSilhouetteTexture(PED_SHIRTS[seed % PED_SHIRTS.length]);
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex,
+    transparent: true,
+    alphaTest: 0.5,
+    side: THREE.DoubleSide,
+    roughness: 0.9,
+  });
+  const height = 1.6 + (seed % 3) * 0.12;
+  const width = height * 0.5;
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), mat);
+  plane.position.y = height / 2;
+  plane.castShadow = true;
+  g.add(plane);
   return g;
 }
 
@@ -130,6 +183,26 @@ function buildSegment(): THREE.Group {
     curb.receiveShadow = true;
     curb.castShadow = true;
     seg.add(curb);
+  }
+
+  // Ground-level detail: a few pedestrian billboards standing on each sidewalk so the
+  // street doesn't read as an empty strip between the buildings.
+  const pedSpacing = 8.5;
+  let pedSeed = 0;
+  for (let z = -SEGMENT_LENGTH / 2 + 3; z < SEGMENT_LENGTH / 2; z += pedSpacing) {
+    for (const side of [-1, 1]) {
+      if ((pedSeed + side) % 3 === 0) {
+        // Skip roughly a third of slots so pedestrians cluster naturally rather than
+        // lining up in a uniform row.
+        pedSeed++;
+        continue;
+      }
+      const ped = buildPedestrian(pedSeed);
+      const pedX = side * (ROAD_WIDTH / 2 + SIDEWALK_WIDTH * (0.35 + (pedSeed % 3) * 0.2));
+      ped.position.set(pedX, 0, z + ((pedSeed % 2) * 1.4 - 0.7));
+      seg.add(ped);
+      pedSeed++;
+    }
   }
 
   // Roadside props: alternate buildings / streetlights along the segment, both sides

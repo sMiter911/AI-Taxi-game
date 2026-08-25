@@ -227,6 +227,41 @@ export function createSignboardTexture(text: string, bg: string, fg: string): TH
   return tex;
 }
 
+/**
+ * Flat pedestrian silhouette (head + torso + legs) on a transparent background,
+ * for cheap billboard "person" props along the sidewalk. Kept high-contrast/dark
+ * so it reads as a figure at chase-cam distance without needing real geometry.
+ */
+export function createPedestrianSilhouetteTexture(shirt: string): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(64, 128);
+  ctx.clearRect(0, 0, 64, 128);
+  ctx.fillStyle = "#2a2a2a";
+  // Head
+  ctx.beginPath();
+  ctx.arc(32, 16, 11, 0, Math.PI * 2);
+  ctx.fill();
+  // Torso (shirt color)
+  ctx.fillStyle = shirt;
+  ctx.beginPath();
+  ctx.moveTo(18, 30);
+  ctx.lineTo(46, 30);
+  ctx.lineTo(42, 74);
+  ctx.lineTo(22, 74);
+  ctx.closePath();
+  ctx.fill();
+  // Arms
+  ctx.fillStyle = "#2a2a2a";
+  ctx.fillRect(12, 32, 7, 34);
+  ctx.fillRect(45, 32, 7, 34);
+  // Legs (trousers, dark)
+  ctx.fillStyle = "#22242c";
+  ctx.fillRect(22, 74, 9, 42);
+  ctx.fillRect(33, 74, 9, 42);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** Police livery: body-wide blue/yellow Battenburg checker field with "POLICE" lettering across a solid band. */
 export function createPoliceLiveryTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(512, 256);
