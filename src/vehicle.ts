@@ -69,6 +69,61 @@ function buildWedge(width: number, backZ: number, backY: number, frontZ: number,
   return geo;
 }
 
+/**
+ * Builds a trapezoidal "frustum" box: narrower at the top than the bottom (a genuine
+ * tumblehome taper), instead of a uniform rectangular box. Used for the rear panel so the
+ * silhouette actually narrows toward the roofline when viewed dead-on from behind — the
+ * one angle the fixed rear-chase camera actually uses on every straight stretch of road.
+ * Face/material index order matches THREE.BoxGeometry's convention (+x,-x,+y,-y,+z,-z) so
+ * it's a drop-in replacement for a BoxGeometry + material-array mesh.
+ */
+function buildTaperedBox(bottomWidth: number, topWidth: number, height: number, depth: number): THREE.BufferGeometry {
+  const hwB = bottomWidth / 2;
+  const hwT = topWidth / 2;
+  const hh = height / 2;
+  const hd = depth / 2;
+  // Bottom (y=-hh) is full width; top (y=+hh) is narrower.
+  const B0 = [-hwB, -hh, -hd];
+  const B1 = [hwB, -hh, -hd];
+  const B2 = [hwB, -hh, hd];
+  const B3 = [-hwB, -hh, hd];
+  const T0 = [-hwT, hh, -hd];
+  const T1 = [hwT, hh, -hd];
+  const T2 = [hwT, hh, hd];
+  const T3 = [-hwT, hh, hd];
+
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const groups: { start: number; count: number; materialIndex: number }[] = [];
+  const pushQuad = (p0: number[], p1: number[], p2: number[], p3: number[], materialIndex: number) => {
+    const start = positions.length / 3;
+    positions.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
+    uvs.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+    groups.push({ start, count: 6, materialIndex });
+  };
+  // +x (right side, sloped inward toward the top)
+  pushQuad(B1, T1, T2, B2, 0);
+  // -x (left side, sloped inward toward the top)
+  pushQuad(B3, T3, T0, B0, 1);
+  // +y (top cap)
+  pushQuad(T0, T3, T2, T1, 2);
+  // -y (bottom cap)
+  pushQuad(B0, B1, B2, B3, 3);
+  // +z (front face)
+  pushQuad(B2, T2, T3, B3, 4);
+  // -z (back face — this is the panel that gets the livery texture)
+  pushQuad(B0, T0, T1, B1, 5);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  for (const g of groups) {
+    geo.addGroup(g.start, g.count, g.materialIndex);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /** Adds four thin diagonal strips across each vertical edge of a box region, faking a
  * chamfered/rounded corner via an extra angled face rather than a perfectly sharp 90°. */
 function addCornerChamfers(
@@ -153,16 +208,24 @@ export function createMinibus(opts: MinibusOptions): Minibus {
   const fullTopY = WHEEL_RADIUS + bodyH;
   const hoodTopY = WHEEL_RADIUS + hoodH;
 
-  // Rear section — full height/width; this is the face dead-center in the chase camera.
-  const rearBox = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyW, bodyH, rearLen),
-    [plainBodyMat, plainBodyMat, plainBodyMat, plainBodyMat, plainBodyMat, bodyMat],
-  );
+  // Rear section — this is the face dead-center in the fixed rear-chase camera essentially
+  // the whole game, so unlike round 4 (a full-width/full-height box with only chamfered
+  // edges) it's now a genuine tapered frustum: full width at the bumper, ~30% narrower at
+  // the roofline. That taper is a real silhouette change visible from directly behind on
+  // every straight stretch, not just during a banked lane change.
+  const rearTopW = bodyW * 0.7;
+  const rearBox = new THREE.Mesh(buildTaperedBox(bodyW, rearTopW, bodyH, rearLen), [
+    plainBodyMat,
+    plainBodyMat,
+    plainBodyMat,
+    plainBodyMat,
+    plainBodyMat,
+    bodyMat,
+  ]);
   rearBox.position.set(0, WHEEL_RADIUS + bodyH / 2, (rearZ0 + rearZ1) / 2);
   rearBox.castShadow = true;
   rearBox.receiveShadow = true;
   group.add(rearBox);
-  addCornerChamfers(group, bodyW / 2, bodyH, rearBox.position.y, rearZ0, rearZ1, plainBodyMat);
 
   // Cabin midsection — same height/width as the rear (raised roofline), forms the
   // passenger box between the tapered rear and the lower hood.
@@ -234,7 +297,10 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     roughness: 0.15,
     metalness: 0.75,
   });
-  const windowBand = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.08, 0.5, windowLen), [
+  // Narrower than the body (continues the rear taper upward into the greenhouse) so the
+  // front/back window-band caps step inward instead of matching the full body width.
+  const windowBandW = bodyW * 0.82;
+  const windowBand = new THREE.Mesh(new THREE.BoxGeometry(windowBandW, 0.5, windowLen), [
     windowSideMat,
     windowSideMat,
     windowSideMat,
@@ -275,7 +341,8 @@ export function createMinibus(opts: MinibusOptions): Minibus {
     opts.livery === "police"
       ? new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.3 })
       : new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.4, metalness: 0.3 });
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.05, 0.16, windowLen - 0.15), roofMat);
+  const roofW = bodyW * 0.66;
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(roofW, 0.16, windowLen - 0.15), roofMat);
   roof.position.y = windowBand.position.y + 0.33;
   roof.position.z = sideZCenter;
   roof.castShadow = true;
@@ -389,6 +456,16 @@ export function createMinibus(opts: MinibusOptions): Minibus {
   // edge (brightened with a touch of emissive so it still reads in the vehicle's own
   // shadow), not reliant on a texture map to fake the highlight.
   const rimGeo = new THREE.TorusGeometry(WHEEL_RADIUS * 0.82, WHEEL_RADIUS * 0.16, 8, 20);
+  // Spoke bars: the torus rim alone is rotationally symmetric, so a spinning wheel with
+  // only a rim looks static — nothing on it changes as it rotates. Three bars crossing
+  // through the hub (six visible arms) give the wheel real asymmetric detail so rotation
+  // is actually visible as the spokes sweep around each frame.
+  const spokeMat = new THREE.MeshStandardMaterial({
+    color: 0xd8d8d8,
+    roughness: 0.3,
+    metalness: 0.85,
+  });
+  const spokeGeo = new THREE.BoxGeometry(0.07, WHEEL_RADIUS * 1.5, 0.06);
   // Wheels sit slightly proud of the body sides (real minibus wheel-arch look) so they
   // stay visible past the body/bumper silhouette from directly behind.
   const wheelPositions: [number, number][] = [
@@ -413,6 +490,15 @@ export function createMinibus(opts: MinibusOptions): Minibus {
       rim.position.x = faceOffset;
       rim.castShadow = true;
       wheelGroup.add(rim);
+      // 3 bars through the hub center, offset 60° apart, = 6 spoke arms sweeping the
+      // wheel face as wheelGroup spins about its local X axis in the animation loop.
+      for (let s = 0; s < 3; s++) {
+        const spoke = new THREE.Mesh(spokeGeo, spokeMat);
+        spoke.position.x = faceOffset;
+        spoke.rotation.x = (s * Math.PI) / 3;
+        spoke.castShadow = true;
+        wheelGroup.add(spoke);
+      }
     }
     wheelGroup.position.set(x, WHEEL_RADIUS, z);
     group.add(wheelGroup);

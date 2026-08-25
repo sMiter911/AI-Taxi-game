@@ -52,9 +52,15 @@ function buildBuilding(seed: number): THREE.Group {
     roughness: 0.8,
     metalness: 0.05,
   });
+  // Cool blue-gray tint, not near-black: round 4's 0x4a4d66 multiplied against the
+  // (already dark-toned) facade texture crushed toward near-pure-black, reading as a hard
+  // cel-shaded split rather than a natural directional shadow. Lightened the tint and
+  // added a faint cool emissive floor so the shadow face never fully crushes to black.
   const shadowMat = new THREE.MeshStandardMaterial({
     map: tex,
-    color: 0x4a4d66,
+    color: 0x8890ab,
+    emissive: 0x14182a,
+    emissiveIntensity: 0.35,
     roughness: 0.95,
     metalness: 0.02,
   });
