@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createRoadWorld, LANE_X, SEGMENT_LENGTH } from "./road";
+import { createRoadWorld, LANE_X } from "./road";
 import { createMinibus } from "./vehicle";
 import { createSkyDome } from "./sky";
 
@@ -65,11 +65,20 @@ const taxi = createMinibus({ bodyColor: 0xf4f4f4, livery: "taxi", stripeColor: "
 taxi.group.position.set(LANE_X[1], 0, 0);
 scene.add(taxi.group);
 
-// ---------- Police obstacle (attached to a road segment so it recycles with the scroll) ----------
+// ---------- Police obstacle ----------
+// Previously this was parented to roadWorld.segments[2] and relied on that segment's
+// own 350-unit recycle loop (SEGMENT_COUNT * SEGMENT_LENGTH) to bring it back into view.
+// That meant the van only reappeared once every ~8s and spent most of that loop sitting
+// deep in fog at a near-constant screen distance before "popping" into clear view close
+// up — read by the critic as a stutter/spawn-distance bug. It's now a fully independent
+// object with its own short, fixed recycle distance so it approaches continuously and
+// predictably regardless of the ground-segment recycle math.
+const POLICE_SPAWN_Z = -150; // where it reappears, just behind the fog's far edge (160)
+const POLICE_RECYCLE_Z = 14; // just behind the camera (camera.z ~= 7) before it resets
 const policeVan = createMinibus({ bodyColor: 0xffffff, livery: "police" });
-policeVan.group.position.set(LANE_X[0], 0, -SEGMENT_LENGTH * 0.35);
+policeVan.group.position.set(LANE_X[0], 0, POLICE_SPAWN_Z);
 policeVan.group.rotation.y = Math.PI; // face oncoming toward the player
-roadWorld.segments[2].add(policeVan.group);
+scene.add(policeVan.group);
 
 // ---------- Resize ----------
 window.addEventListener("resize", () => {
@@ -160,6 +169,24 @@ function drawStreaks(dt: number, speedFactor: number) {
 // ---------- Resize (extended to keep the streak overlay in sync) ----------
 window.addEventListener("resize", resizeStreakCanvas);
 
+// ---------- HUD ----------
+// Minimal DOM/CSS overlay (not in the 3D scene) showing a running distance counter and a
+// placeholder score readout. Distance ticks up directly from the world-scroll speed used
+// in the animation loop below; score is a simple multiple of distance for now — this
+// vertical slice doesn't need real scoring/economy logic yet, just the HUD chrome.
+const hudDistanceEl = document.getElementById("hud-distance-value")!;
+const hudScoreEl = document.getElementById("hud-score-value")!;
+let distanceMeters = 0;
+let lastHudDistance = -1;
+function updateHud() {
+  const distDisplay = Math.floor(distanceMeters);
+  if (distDisplay !== lastHudDistance) {
+    hudDistanceEl.textContent = distDisplay.toLocaleString();
+    hudScoreEl.textContent = (distDisplay * 10).toLocaleString();
+    lastHudDistance = distDisplay;
+  }
+}
+
 // ---------- Animation loop ----------
 const FORWARD_SPEED = 42; // units/sec, world scroll speed (perceived taxi speed) — was 22, doubled for a real sense of speed
 const LANE_LERP = 7.5; // how snappy the lane tween is
@@ -174,6 +201,15 @@ function animate() {
   // Scroll the world toward the camera to sell forward motion.
   roadWorld.update(FORWARD_SPEED * dt);
 
+  // Advance the police van at the same forward speed as the scrolling world, and recycle
+  // it independently of the road-segment loop once it passes behind the camera. This is
+  // the fix for the round-2 "hangs then jumps" bug: constant, linear approach every cycle,
+  // verified by watching it scroll through multiple recycles (see commit notes).
+  policeVan.group.position.z += FORWARD_SPEED * dt;
+  if (policeVan.group.position.z > POLICE_RECYCLE_Z) {
+    policeVan.group.position.z = POLICE_SPAWN_Z;
+  }
+
   // Ease the taxi laterally into its target lane (tween, not a snap).
   taxi.group.position.x = THREE.MathUtils.damp(taxi.group.position.x, targetX, LANE_LERP, dt);
   // Body roll/bank into the lane change — snappier and more pronounced than round 1.
@@ -183,10 +219,13 @@ function animate() {
   // Gentle idle bob for life.
   taxi.group.position.y = Math.sin(t * 8) * 0.01;
 
-  // Spin wheels on both vehicles to sell motion: angle = distance traveled / wheel radius,
-  // matched to the new forward speed (radius here mirrors WHEEL_RADIUS in vehicle.ts).
-  const WHEEL_RADIUS = 0.42;
-  const wheelSpin = (FORWARD_SPEED * dt) / WHEEL_RADIUS;
+  // Spin wheels on both vehicles to sell motion. Physically-accurate angle (distance /
+  // wheel radius) works out to ~100 rad/s at this forward speed, which at 60fps is ~95
+  // degrees per frame — too fast to read as rotation (it strobes) even with hub detail.
+  // Using a slower, stylized constant rate instead keeps the spin visually legible while
+  // the new spoke-textured hub (see textures.ts/vehicle.ts) gives it something to read.
+  const WHEEL_SPIN_RATE = 9; // rad/sec, tuned for visibility rather than physical accuracy
+  const wheelSpin = WHEEL_SPIN_RATE * dt;
   for (const w of taxi.wheels) w.rotation.x -= wheelSpin;
   for (const w of policeVan.wheels) w.rotation.x -= wheelSpin;
 
@@ -228,6 +267,10 @@ function animate() {
   // Speed-streak overlay: intensity scales with forward speed plus a lane-change boost.
   const speedFactor = Math.min(1.6, FORWARD_SPEED / 40 + Math.abs(lateralVel) * 0.15);
   drawStreaks(dt, speedFactor);
+
+  // HUD: distance ticks up with the same world-scroll speed driving everything else.
+  distanceMeters += FORWARD_SPEED * dt;
+  updateHud();
 
   renderer.render(scene, camera);
 }

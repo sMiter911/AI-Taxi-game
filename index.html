@@ -6,12 +6,83 @@
     <title>Taxi Chaos: Johannesburg</title>
     <style>
       html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-      #app { width: 100vw; height: 100vh; }
+      #app { width: 100vw; height: 100vh; position: relative; }
       canvas { display: block; }
+
+      #hud {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        padding: 18px 22px;
+        box-sizing: border-box;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        pointer-events: none;
+        font-family: "Arial Black", "Segoe UI", system-ui, sans-serif;
+        z-index: 10;
+      }
+      .hud-tile {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 108px;
+        padding: 8px 16px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(20, 14, 10, 0.55), rgba(20, 14, 10, 0.35));
+        border: 2px solid rgba(255, 216, 143, 0.55);
+        backdrop-filter: blur(2px);
+        box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 18px rgba(255, 160, 60, 0.15);
+      }
+      .hud-label {
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        color: #ffd88f;
+        text-transform: uppercase;
+        text-shadow: 0 2px 3px rgba(0, 0, 0, 0.7);
+        margin-bottom: 2px;
+      }
+      .hud-value {
+        font-size: 30px;
+        line-height: 1.05;
+        color: #fff6e6;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55), 0 0 14px rgba(255, 170, 70, 0.5);
+        font-variant-numeric: tabular-nums;
+      }
+      .hud-value .hud-unit {
+        font-size: 14px;
+        font-weight: 700;
+        margin-left: 3px;
+        color: #ffd88f;
+      }
+      #hud-score .hud-value {
+        color: #fff2b8;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55), 0 0 14px rgba(255, 214, 90, 0.65);
+      }
+      #hud-score::before {
+        content: "\1F695";
+        font-size: 18px;
+        display: block;
+        margin: -4px 0 2px;
+      }
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="hud">
+        <div class="hud-tile" id="hud-distance">
+          <span class="hud-label">Distance</span>
+          <span class="hud-value"><span id="hud-distance-value">0</span><span class="hud-unit">m</span></span>
+        </div>
+        <div class="hud-tile" id="hud-score">
+          <span class="hud-label">Score</span>
+          <span class="hud-value" id="hud-score-value">0</span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,5 +1,11 @@
 import * as THREE from "three";
-import { createTaxiLiveryTexture, createPoliceLiveryTexture, createSignboardTexture } from "./textures";
+import {
+  createTaxiLiveryTexture,
+  createPoliceLiveryTexture,
+  createSignboardTexture,
+  createWindowPaneTexture,
+  createWheelHubTexture,
+} from "./textures";
 
 export interface MinibusOptions {
   bodyColor: number;
@@ -82,22 +88,59 @@ export function createMinibus(opts: MinibusOptions): Minibus {
   rightPanel.rotation.y = -Math.PI / 2;
   group.add(rightPanel);
 
-  // Window band (upper greenhouse) - dark glass with a cool blue tint and a glossy,
-  // slightly reflective finish so it reads clearly against the body livery.
+  // Window band (upper greenhouse) - tinted glass with pillar lines breaking it into
+  // individual panes (via CanvasTexture), a lighter blue tint, and a low-roughness/
+  // high-metalness finish so direct light throws a real specular highlight across it
+  // instead of reading as one flat black rectangle.
+  const paneCount = Math.max(4, Math.round((bodyL - 0.6) / 0.7));
+  const windowTex = createWindowPaneTexture(paneCount);
   const windowMat = new THREE.MeshStandardMaterial({
-    color: 0x16283a,
+    map: windowTex,
+    color: 0xffffff,
     emissive: 0x0a1520,
-    emissiveIntensity: 0.4,
-    roughness: 0.08,
-    metalness: 0.85,
+    emissiveIntensity: 0.15,
+    roughness: 0.12,
+    metalness: 0.75,
+    envMapIntensity: 1.4,
   });
-  const windowBand = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyW - 0.08, 0.5, bodyL - 0.6),
+  const windowSideMat = new THREE.MeshStandardMaterial({
+    color: 0x16283a,
+    roughness: 0.15,
+    metalness: 0.75,
+  });
+  const windowBand = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.08, 0.5, bodyL - 0.6), [
+    windowSideMat,
+    windowSideMat,
+    windowSideMat,
+    windowSideMat,
     windowMat,
-  );
+    windowMat,
+  ]);
   windowBand.position.y = body.position.y + bodyH / 2 - 0.05;
   windowBand.castShadow = true;
   group.add(windowBand);
+
+  // Side glass panels (wrap the pane texture around the left/right sides too, so the
+  // window band reads as glass from the chase-cam's side-on view during lane changes).
+  const sideWindowGeo = new THREE.PlaneGeometry(bodyL - 0.7, 0.42);
+  const leftWindow = new THREE.Mesh(sideWindowGeo, windowMat);
+  leftWindow.position.set(bodyW / 2 + 0.012, windowBand.position.y, 0);
+  leftWindow.rotation.y = Math.PI / 2;
+  group.add(leftWindow);
+  const rightWindow = new THREE.Mesh(sideWindowGeo, windowMat);
+  rightWindow.position.set(-bodyW / 2 - 0.012, windowBand.position.y, 0);
+  rightWindow.rotation.y = -Math.PI / 2;
+  group.add(rightWindow);
+
+  // Angled windshield: a small tilted glass panel bridging the hood line up to the
+  // window band on the front face, so the silhouette reads less like a flat vertical
+  // box-truck front and more like a raked windscreen.
+  const windshieldGeo = new THREE.PlaneGeometry(bodyW - 0.14, 0.62);
+  const windshield = new THREE.Mesh(windshieldGeo, windowMat);
+  windshield.position.set(0, body.position.y + bodyH / 2 - 0.32, bodyL / 2 - 0.02);
+  windshield.rotation.x = -0.32;
+  windshield.castShadow = true;
+  group.add(windshield);
 
   // Roof cap
   const roofMat =
@@ -196,12 +239,14 @@ export function createMinibus(opts: MinibusOptions): Minibus {
   }
 
   // Wheels
-  // Tire kept dark but not pure black, and a bright hub, so the wheel reads as a distinct
-  // shape against the ground shadow instead of disappearing into it.
+  // Tire kept dark but not pure black. The hub carries a radial spoke CanvasTexture on
+  // its outward-facing cap so wheel rotation is actually visible frame-to-frame instead
+  // of a featureless disc that looks identical at every angle.
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.75, metalness: 0.1 });
-  const hubMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.3, metalness: 0.7 });
-  const wheelGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.32, 16);
-  const hubGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.45, WHEEL_RADIUS * 0.45, 0.34, 12);
+  const hubTex = createWheelHubTexture();
+  const hubMat = new THREE.MeshStandardMaterial({ map: hubTex, roughness: 0.35, metalness: 0.6 });
+  const wheelGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.32, 20);
+  const hubGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.8, WHEEL_RADIUS * 0.8, 0.36, 20);
   // Wheels sit slightly proud of the body sides (real minibus wheel-arch look) so they
   // stay visible past the body/bumper silhouette from directly behind — round 1's wheels
   // were flush with the body and vanished behind the (wider) bumper.

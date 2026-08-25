@@ -75,49 +75,134 @@ export function createBuildingFacadeTexture(baseColor: string, windowColor: stri
 }
 
 /**
- * Minibus taxi livery: bold two-tone body with a diagonal accent stripe, a
- * Battenburg-style checker band, and "TAXI" route signage lettering — the
- * classic Johannesburg minibus-taxi look, not a single stripe.
+ * Minibus taxi livery: bold two-tone body with a body-wide Battenburg-style
+ * checker field covering the lower half of the panel (not a thin bumper
+ * strip), a solid accent band with "TAXI" route signage lettering above it —
+ * the classic Johannesburg minibus-taxi look.
  */
 export function createTaxiLiveryTexture(stripeColor: string): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(512, 256);
 
-  // White body base.
+  // White/cream upper body base.
   ctx.fillStyle = "#f7f7f4";
   ctx.fillRect(0, 0, 512, 256);
 
-  // Bold diagonal accent band.
-  ctx.save();
-  ctx.translate(0, 110);
-  ctx.rotate(-0.09);
-  ctx.fillStyle = stripeColor;
-  ctx.fillRect(-60, 0, 700, 54);
-  ctx.fillStyle = "#141414";
-  ctx.fillRect(-60, 54, 700, 8);
-  ctx.restore();
+  // Body-wide checker field across the lower ~45% of the panel — large cells,
+  // full width and full remaining height so it reads as a livery pattern
+  // covering the body, not a decorative accent line.
+  const checkTop = 148;
+  const cell = 32;
+  const cols = Math.ceil(512 / cell);
+  const rows = Math.ceil((256 - checkTop) / cell);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 === 0 ? stripeColor : "#141414";
+      ctx.fillRect(c * cell, checkTop + r * cell, cell, cell);
+    }
+  }
 
-  // "TAXI" route signage lettering on the accent band.
-  ctx.save();
-  ctx.translate(0, 110);
-  ctx.rotate(-0.09);
+  // Solid accent band separating the checker field from the upper body,
+  // carrying the "TAXI" route signage lettering.
+  ctx.fillStyle = stripeColor;
+  ctx.fillRect(0, checkTop - 46, 512, 46);
   ctx.fillStyle = "#141414";
-  ctx.font = "bold 40px sans-serif";
+  ctx.fillRect(0, checkTop - 50, 512, 4);
+  ctx.fillRect(0, checkTop - 4, 512, 4);
+  ctx.font = "bold 34px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("TAXI", 350, 27);
+  ctx.fillText("TAXI", 130, checkTop - 23);
+  ctx.fillText("TAXI", 390, checkTop - 23);
+  ctx.beginPath();
+  ctx.arc(256, checkTop - 23, 14, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Window-band texture: tinted glass panes separated by dark pillar bars so
+ * the greenhouse reads as individual windows rather than one flat black
+ * rectangle. Tiled along the body length via texture.repeat.
+ */
+export function createWindowPaneTexture(paneCount = 6): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(512, 128);
+  // Glass base with a subtle vertical gradient for a cheap "reflection" read.
+  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, "#8fb8d6");
+  grad.addColorStop(0.35, "#3f6a86");
+  grad.addColorStop(1, "#182d3c");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 128);
+
+  // Diagonal glare streak.
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(0, 90);
+  ctx.lineTo(180, 0);
+  ctx.lineTo(240, 0);
+  ctx.lineTo(60, 128);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 
-  // Battenburg-style checker band low on the body.
-  const checkY = 190;
-  const checkH = 40;
-  const cell = 24;
-  for (let i = 0; i < 512 / cell; i++) {
-    ctx.fillStyle = i % 2 === 0 ? stripeColor : "#141414";
-    ctx.fillRect(i * cell, checkY, cell, checkH);
+  // Pillar bars between individual panes.
+  const paneW = 512 / paneCount;
+  ctx.fillStyle = "#12181d";
+  for (let i = 0; i <= paneCount; i++) {
+    const x = Math.round(i * paneW);
+    ctx.fillRect(x - 3, 0, 6, 128);
   }
-  ctx.fillStyle = "#141414";
-  ctx.fillRect(0, checkY - 4, 512, 4);
-  ctx.fillRect(0, checkY + checkH, 512, 4);
+  // Top/bottom window-frame trim.
+  ctx.fillRect(0, 0, 512, 6);
+  ctx.fillRect(0, 122, 512, 6);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Radial spoke pattern for a wheel hub/rim so rotation is visually readable. */
+export function createWheelHubTexture(): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(128, 128);
+  ctx.fillStyle = "#3a3a3a";
+  ctx.fillRect(0, 0, 128, 128);
+  const cx = 64;
+  const cy = 64;
+  ctx.translate(cx, cy);
+  const spokes = 5;
+  ctx.fillStyle = "#d8d8d8";
+  for (let i = 0; i < spokes; i++) {
+    ctx.save();
+    ctx.rotate((i / spokes) * Math.PI * 2);
+    ctx.beginPath();
+    ctx.moveTo(-6, -4);
+    ctx.lineTo(6, -4);
+    ctx.lineTo(4, -58);
+    ctx.lineTo(-4, -58);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.fillStyle = "#eaeaea";
+  ctx.arc(0, 0, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#555555";
+  ctx.beginPath();
+  ctx.arc(0, 0, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // Outer tire rim ring for contrast against the dark tire.
+  ctx.strokeStyle = "#111111";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 61, 0, Math.PI * 2);
+  ctx.stroke();
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -142,27 +227,36 @@ export function createSignboardTexture(text: string, bg: string, fg: string): TH
   return tex;
 }
 
-/** Police livery: bold blue/yellow Battenburg checker with "POLICE" lettering across the band. */
+/** Police livery: body-wide blue/yellow Battenburg checker field with "POLICE" lettering across a solid band. */
 export function createPoliceLiveryTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(512, 256);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, 512, 256);
-  ctx.fillStyle = "#0b3d91";
-  ctx.fillRect(0, 84, 512, 72);
-  ctx.fillStyle = "#ffd400";
-  ctx.fillRect(0, 80, 512, 6);
-  ctx.fillRect(0, 154, 512, 6);
-  // Battenburg checker blocks at front/rear of the band.
-  const cell = 22;
-  for (let i = 0; i < 512 / cell; i++) {
-    ctx.fillStyle = i % 2 === 0 ? "#0b3d91" : "#ffd400";
-    ctx.fillRect(i * cell, 88, cell, 26);
+
+  // Body-wide Battenburg checker field across the lower ~45% of the panel.
+  const checkTop = 148;
+  const cell = 26;
+  const cols = Math.ceil(512 / cell);
+  const rows = Math.ceil((256 - checkTop) / cell);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 === 0 ? "#0b3d91" : "#ffd400";
+      ctx.fillRect(c * cell, checkTop + r * cell, cell, cell);
+    }
   }
+
+  // Solid navy "POLICE" band above the checker field.
+  ctx.fillStyle = "#0b3d91";
+  ctx.fillRect(0, checkTop - 46, 512, 46);
+  ctx.fillStyle = "#ffd400";
+  ctx.fillRect(0, checkTop - 50, 512, 4);
+  ctx.fillRect(0, checkTop - 4, 512, 4);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 30px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("P O L I C E", 256, 138);
+  ctx.fillText("P O L I C E", 256, checkTop - 23);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
