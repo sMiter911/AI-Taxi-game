@@ -12,10 +12,14 @@ const SIDEWALK_WIDTH = 3.2;
 const CURB_HEIGHT = 0.18;
 
 const facadeColors = [
-  ["#c98b4f", "#3a2c1e"],
-  ["#b5b5ad", "#233042"],
-  ["#d9a441", "#2c2620"],
-  ["#8f9aa3", "#1c2530"],
+  ["#d9722e", "#2a1a10"], // burnt-orange brick
+  ["#3f6e8c", "#0f1b26"], // saturated teal-blue
+  ["#e0a52c", "#241c0c"], // warm gold ochre
+  ["#8a3b46", "#1c0d10"], // deep terracotta red
+  ["#4c8c5a", "#0e1c12"], // muted jacaranda green
+  ["#c9506b", "#26101a"], // punchy coral pink
+  ["#5b5f8a", "#15151f"], // dusk indigo
+  ["#e8c15a", "#2c2410"], // sunlit sandstone
 ];
 
 export interface RoadWorld {

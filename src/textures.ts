@@ -49,7 +49,7 @@ export function createAsphaltTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** Simple brick/window pattern for building facades. */
+/** Simple brick/window pattern for building facades, with a lit/unlit window mix for character. */
 export function createBuildingFacadeTexture(baseColor: string, windowColor: string): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(128, 256);
   ctx.fillStyle = baseColor;
@@ -58,12 +58,13 @@ export function createBuildingFacadeTexture(baseColor: string, windowColor: stri
   const winH = 20;
   const gapX = 10;
   const gapY = 16;
-  ctx.fillStyle = windowColor;
   for (let y = gapY; y < 256 - winH; y += winH + gapY) {
     for (let x = gapX; x < 128 - winW; x += winW + gapX) {
-      if (Math.random() > 0.15) {
-        ctx.fillRect(x, y, winW, winH);
-      }
+      const r = Math.random();
+      if (r > 0.85) continue; // occasional missing pane
+      // Most windows are the dark/glass base color; a few glow warm (lit interior) for life.
+      ctx.fillStyle = r > 0.72 ? "#ffce7a" : windowColor;
+      ctx.fillRect(x, y, winW, winH);
     }
   }
   const tex = new THREE.CanvasTexture(canvas);
@@ -73,48 +74,95 @@ export function createBuildingFacadeTexture(baseColor: string, windowColor: stri
   return tex;
 }
 
-/** Minibus taxi livery: bold diagonal stripe band, used as a decal texture on body panels. */
+/**
+ * Minibus taxi livery: bold two-tone body with a diagonal accent stripe, a
+ * Battenburg-style checker band, and "TAXI" route signage lettering — the
+ * classic Johannesburg minibus-taxi look, not a single stripe.
+ */
 export function createTaxiLiveryTexture(stripeColor: string): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(512, 256);
-  ctx.fillStyle = "#f4f4f4";
+
+  // White body base.
+  ctx.fillStyle = "#f7f7f4";
   ctx.fillRect(0, 0, 512, 256);
+
+  // Bold diagonal accent band.
   ctx.save();
-  ctx.translate(0, 140);
-  ctx.rotate(-0.12);
+  ctx.translate(0, 110);
+  ctx.rotate(-0.09);
   ctx.fillStyle = stripeColor;
-  ctx.fillRect(-50, 0, 700, 46);
-  ctx.fillStyle = "#161616";
-  ctx.fillRect(-50, 46, 700, 10);
+  ctx.fillRect(-60, 0, 700, 54);
+  ctx.fillStyle = "#141414";
+  ctx.fillRect(-60, 54, 700, 8);
   ctx.restore();
+
+  // "TAXI" route signage lettering on the accent band.
+  ctx.save();
+  ctx.translate(0, 110);
+  ctx.rotate(-0.09);
+  ctx.fillStyle = "#141414";
+  ctx.font = "bold 40px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("TAXI", 350, 27);
+  ctx.restore();
+
+  // Battenburg-style checker band low on the body.
+  const checkY = 190;
+  const checkH = 40;
+  const cell = 24;
+  for (let i = 0; i < 512 / cell; i++) {
+    ctx.fillStyle = i % 2 === 0 ? stripeColor : "#141414";
+    ctx.fillRect(i * cell, checkY, cell, checkH);
+  }
+  ctx.fillStyle = "#141414";
+  ctx.fillRect(0, checkY - 4, 512, 4);
+  ctx.fillRect(0, checkY + checkH, 512, 4);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-/** Police livery: blue/white checker-ish band with "JMPD" style blocking (no text needed, just blocks). */
+/** Small roof-sign decal: bold colored background with centered lettering (taxi route board / police light-bar label). */
+export function createSignboardTexture(text: string, bg: string, fg: string): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(256, 96);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 256, 96);
+  ctx.strokeStyle = fg;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4, 4, 248, 88);
+  ctx.fillStyle = fg;
+  ctx.font = "bold 46px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 128, 52);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Police livery: bold blue/yellow Battenburg checker with "POLICE" lettering across the band. */
 export function createPoliceLiveryTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(512, 256);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, 512, 256);
   ctx.fillStyle = "#0b3d91";
-  ctx.fillRect(0, 90, 512, 60);
+  ctx.fillRect(0, 84, 512, 72);
   ctx.fillStyle = "#ffd400";
-  ctx.fillRect(0, 86, 512, 6);
-  ctx.fillRect(0, 148, 512, 6);
-  // checker blocks (Battenburg-style) at front/rear
-  ctx.fillStyle = "#0b3d91";
+  ctx.fillRect(0, 80, 512, 6);
+  ctx.fillRect(0, 154, 512, 6);
+  // Battenburg checker blocks at front/rear of the band.
   const cell = 22;
   for (let i = 0; i < 512 / cell; i++) {
-    if (i % 2 === 0) {
-      ctx.fillRect(i * cell, 92, cell, 24);
-    }
+    ctx.fillStyle = i % 2 === 0 ? "#0b3d91" : "#ffd400";
+    ctx.fillRect(i * cell, 88, cell, 26);
   }
-  ctx.fillStyle = "#ffd400";
-  for (let i = 0; i < 512 / cell; i++) {
-    if (i % 2 !== 0) {
-      ctx.fillRect(i * cell, 92, cell, 24);
-    }
-  }
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 30px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("P O L I C E", 256, 138);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
