@@ -45,8 +45,8 @@ export interface Building {
 export interface Road {
   id: number;
   highway: string;
-  oneway: boolean;
-  points: [number, number][]; // local metres
+  oneway: boolean; // true when the road is one-way; points then run in the direction of travel
+  points: [number, number][]; // local metres; reversed from OSM node order when oneway=-1
 }
 
 export interface CityModel {

@@ -33,15 +33,34 @@ function inBbox(n: OsmNode, b: Bbox): boolean {
   return n.lat >= b.minLat && n.lat <= b.maxLat && n.lon >= b.minLon && n.lon <= b.maxLon;
 }
 
+// Strict positive decimal: "30", "12.5", optionally followed by " m" for height. Anything else is malformed.
+const HEIGHT_PATTERN = /^(\d+(?:\.\d+)?)\s*(?:m)?$/i;
+const LEVELS_PATTERN = /^(\d+(?:\.\d+)?)$/;
+
+function parsePositive(raw: string | undefined, pattern: RegExp): number | undefined {
+  const match = pattern.exec((raw ?? "").trim());
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  return value > 0 ? value : undefined;
+}
+
+// SOP rule: height tag, else building:levels x 3 m, else the default. Malformed values fall through.
 function buildingHeight(tags: Record<string, string>, defaultHeightM: number): number {
-  const h = parseFloat(tags.height ?? "");
-  if (Number.isFinite(h) && h > 0) return h;
-  const levels = parseFloat(tags["building:levels"] ?? "");
-  if (Number.isFinite(levels) && levels > 0) return levels * METRES_PER_LEVEL;
+  const h = parsePositive(tags.height, HEIGHT_PATTERN);
+  if (h !== undefined) return h;
+  const levels = parsePositive(tags["building:levels"], LEVELS_PATTERN);
+  if (levels !== undefined) return levels * METRES_PER_LEVEL;
   return defaultHeightM;
 }
 
-const ONEWAY_TRUE = new Set(["yes", "true", "1"]);
+// Returns whether the way is one-way, and whether its node order must be reversed so that
+// the drawn order always follows the direction of travel (oneway=-1 means against node order).
+function onewayOf(tags: Record<string, string>): { oneway: boolean; reverse: boolean } {
+  const value = (tags.oneway ?? "").trim().toLowerCase();
+  if (value === "-1") return { oneway: true, reverse: true };
+  if (value === "yes" || value === "true" || value === "1") return { oneway: true, reverse: false };
+  return { oneway: false, reverse: false };
+}
 
 // Keeps a way only if at least one of its nodes is inside the bbox.
 export function transform(
@@ -74,11 +93,12 @@ export function transform(
         heightM: buildingHeight(tags, defaultHeightM),
       });
     } else if (tags.highway !== undefined) {
+      const { oneway, reverse } = onewayOf(tags);
       roads.push({
         id: way.id,
         highway: tags.highway,
-        oneway: ONEWAY_TRUE.has(tags.oneway ?? ""),
-        points,
+        oneway,
+        points: reverse ? points.reverse() : points,
       });
     }
   }

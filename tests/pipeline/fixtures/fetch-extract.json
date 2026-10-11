@@ -1,0 +1,23 @@
+{
+  "version": 0.6,
+  "elements": [
+    { "type": "node", "id": 101, "lat": -26.2050, "lon": 28.0400 },
+    { "type": "node", "id": 102, "lat": -26.2052, "lon": 28.0410 },
+    { "type": "node", "id": 103, "lat": -26.2060, "lon": 28.0410 },
+    { "type": "node", "id": 104, "lat": -26.2060, "lon": 28.0400 },
+    { "type": "node", "id": 201, "lat": -26.1200, "lon": 28.0560 },
+    { "type": "node", "id": 202, "lat": -26.1210, "lon": 28.0570 },
+    { "type": "node", "id": 301, "lat": -26.3000, "lon": 28.0000 },
+    { "type": "node", "id": 302, "lat": -26.3010, "lon": 28.0010 },
+    { "type": "node", "id": 401, "lat": -26.2050, "lon": 28.0800 },
+    { "type": "node", "id": 402, "lat": -26.2050, "lon": 28.0850 },
+    { "type": "node", "id": 501, "lat": -26.2050, "lon": 28.0650 },
+    { "type": "node", "id": "bad", "lat": -26.2050, "lon": 28.0400 },
+
+    { "type": "way", "id": 601, "nodes": [101, 102, 103, 104, 101], "tags": { "building": "yes", "height": "20" } },
+    { "type": "way", "id": 602, "nodes": [201, 202], "tags": { "highway": "primary", "oneway": "yes" } },
+    { "type": "way", "id": 603, "nodes": [501, 402], "tags": { "highway": "residential" } },
+    { "type": "way", "id": 604, "nodes": [301, 302, 301], "tags": { "building": "yes" } },
+    { "type": "way", "id": 605, "nodes": [101, 999], "tags": { "highway": "service" } }
+  ]
+}

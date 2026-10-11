@@ -6,6 +6,8 @@ import { transform, type TransformOptions } from "./transform";
 import { validateExtract } from "./validate";
 import type { Bbox, CityModel } from "./types";
 
+export { clipExtract, readLocalExtract, JHB_BBOX } from "./fetch";
+export type { ClipResult } from "./fetch";
 export { emit } from "./emit";
 export { transform } from "./transform";
 export { validateExtract } from "./validate";
